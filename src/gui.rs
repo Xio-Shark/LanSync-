@@ -22,15 +22,31 @@ struct AppState {
 pub async fn start_gui(port: u16) -> Result<()> {
     let state = Arc::new(Mutex::new(AppState { peers: Vec::new() }));
 
-    // mDNS 后台持续发现设备
+    // 接收端口：GUI 在此端口监听来自对端的文件传输
+    let recv_port = port + 1;
+    let recv_dir = default_receive_dir();
+    tokio::fs::create_dir_all(&recv_dir).await?;
+
+    // 后台启动文件接收器，否则对端发现了我们但连不上
+    let recv_bind = format!("0.0.0.0:{recv_port}");
+    let recv_dir_clone = recv_dir.clone();
+    tokio::spawn(async move {
+        tracing::info!("后台接收器启动: port {recv_port}");
+        if let Err(e) = crate::transfer::receiver::start_receiver(&recv_bind, &recv_dir_clone).await {
+            tracing::error!("接收器异常: {e:#}");
+        }
+    });
+
+    // mDNS 注册：广播接收端口，让对端知道往哪发
     let svc_name = hostname::get().unwrap_or_default().to_string_lossy().to_string();
-    let (_mdns, mut rx) = discovery::start_discovery(&svc_name, port + 1)?;
+    let (_mdns, mut rx) = discovery::start_discovery(&svc_name, recv_port)?;
+    tracing::info!("mDNS 已注册: {svc_name} (recv port {recv_port})");
+
     let bg_state = state.clone();
     tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
             let discovery::DiscoveryEvent::Found(peer) = event;
             let mut s = bg_state.lock().await;
-            // 去重：相同 host+port 不重复添加
             if !s.peers.iter().any(|p| p.host == peer.host && p.port == peer.port) {
                 tracing::info!("发现设备: {}:{}", peer.host, peer.port);
                 s.peers.push(peer);
@@ -52,9 +68,8 @@ pub async fn start_gui(port: u16) -> Result<()> {
         .route("/api/resolve", post(api_resolve));
 
     let addr = format!("0.0.0.0:{port}");
-    tracing::info!("GUI 启动: http://localhost:{port}");
+    tracing::info!("GUI: http://localhost:{port}  接收: port {recv_port}");
 
-    // 延迟打开浏览器，等 server 就绪
     let url = format!("http://localhost:{port}");
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -64,6 +79,12 @@ pub async fn start_gui(port: u16) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+fn default_receive_dir() -> PathBuf {
+    std::env::var("HOME")
+        .map(|h| PathBuf::from(h).join("Downloads"))
+        .unwrap_or_else(|_| PathBuf::from("."))
 }
 
 async fn index_page() -> Html<&'static str> {
