@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Synchronize</title>
+<style>
+  :root { --bg: #0f0f13; --card: #1a1a24; --border: #2a2a3a; --accent: #6366f1; --accent2: #818cf8; --green: #22c55e; --red: #ef4444; --text: #e2e8f0; --text2: #94a3b8; --radius: 12px; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+  .container { max-width:720px; margin:0 auto; padding:24px 16px; }
+  h1 { font-size:24px; font-weight:700; margin-bottom:4px; background:linear-gradient(135deg,var(--accent),var(--accent2)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+  .subtitle { color:var(--text2); font-size:13px; margin-bottom:24px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px; }
+  .card h2 { font-size:15px; font-weight:600; margin-bottom:14px; display:flex; align-items:center; gap:8px; }
+  .dropzone { border:2px dashed var(--border); border-radius:var(--radius); padding:48px 20px; text-align:center; cursor:pointer; transition:all .2s; }
+  .dropzone:hover, .dropzone.over { border-color:var(--accent); background:rgba(99,102,241,.06); }
+  .dropzone .icon { font-size:40px; margin-bottom:8px; }
+  .dropzone p { color:var(--text2); font-size:14px; }
+  .peers { list-style:none; }
+  .peers li { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:8px; cursor:pointer; transition:background .15s; }
+  .peers li:hover { background:rgba(99,102,241,.08); }
+  .peers li.selected { background:rgba(99,102,241,.15); border:1px solid var(--accent); }
+  .peers .dot { width:8px; height:8px; border-radius:50%; background:var(--green); flex-shrink:0; }
+  .peers .name { font-size:14px; font-weight:500; }
+  .peers .addr { font-size:12px; color:var(--text2); margin-left:auto; }
+  .empty { color:var(--text2); font-size:13px; text-align:center; padding:16px; }
+  .sync-row { display:flex; gap:10px; align-items:center; }
+  .sync-row input { flex:1; padding:10px 14px; background:#12121a; border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:14px; outline:none; }
+  .sync-row input:focus { border-color:var(--accent); }
+  .btn { padding:10px 20px; border:none; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; transition:all .15s; }
+  .btn-primary { background:var(--accent); color:#fff; }
+  .btn-primary:hover { background:var(--accent2); transform:translateY(-1px); }
+  .btn-primary:disabled { opacity:.4; cursor:not-allowed; transform:none; }
+  .btn-sm { padding:6px 14px; font-size:12px; }
+  .btn-green { background:var(--green); color:#fff; }
+  .btn-green:hover { opacity:.9; }
+  .btn-red { background:var(--red); color:#fff; }
+  .btn-red:hover { opacity:.9; }
+  .conflict { border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:10px; }
+  .conflict .path { font-weight:600; font-size:14px; margin-bottom:8px; }
+  .conflict .meta { display:grid; grid-template-columns:1fr 1fr; gap:6px; font-size:12px; color:var(--text2); margin-bottom:10px; }
+  .conflict .meta span { padding:6px 10px; background:#12121a; border-radius:6px; }
+  .conflict .actions { display:flex; gap:8px; }
+  .log { background:#0a0a10; border-radius:8px; padding:12px; font-family:'SF Mono',monospace; font-size:12px; color:var(--text2); max-height:200px; overflow-y:auto; margin-top:14px; }
+  .log .entry { padding:2px 0; }
+  .log .ok { color:var(--green); }
+  .log .err { color:var(--red); }
+  .badge { display:inline-flex; align-items:center; justify-content:center; min-width:20px; height:20px; border-radius:10px; font-size:11px; font-weight:700; padding:0 6px; }
+  .badge-accent { background:var(--accent); color:#fff; }
+  #fileInput { display:none; }
+  .progress { height:3px; background:var(--border); border-radius:2px; margin-top:10px; overflow:hidden; display:none; }
+  .progress .bar { height:100%; background:var(--accent); width:0; transition:width .3s; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>⚡ Synchronize</h1>
+  <p class="subtitle" id="hostname">局域网文件传输与增量同步</p>
+
+  <div class="card">
+    <h2>📡 在线设备 <span class="badge badge-accent" id="peerCount">0</span></h2>
+    <ul class="peers" id="peerList"><li class="empty">搜索中...</li></ul>
+  </div>
+
+  <div class="card">
+    <h2>📁 拖拽传输</h2>
+    <div class="dropzone" id="dropzone">
+      <div class="icon">📂</div>
+      <p>拖拽文件或文件夹到此处</p>
+      <p style="margin-top:6px;font-size:12px">或点击选择文件</p>
+    </div>
+    <input type="file" id="fileInput" multiple>
+    <div class="progress" id="uploadProgress"><div class="bar" id="uploadBar"></div></div>
+  </div>
+
+  <div class="card">
+    <h2>🔄 增量同步</h2>
+    <div class="sync-row">
+      <input type="text" id="syncDir" placeholder="输入同步目录路径，如 /Users/you/work">
+      <button class="btn btn-primary" id="syncBtn" onclick="doSync()">同步</button>
+    </div>
+  </div>
+
+  <div class="card" id="conflictCard" style="display:none">
+    <h2>⚠️ 冲突 <span class="badge badge-accent" id="conflictCount">0</span></h2>
+    <div id="conflictList"></div>
+  </div>
+
+  <div class="card">
+    <h2>📋 日志</h2>
+    <div class="log" id="logBox"><div class="entry">就绪</div></div>
+  </div>
+</div>
+
+<script>
+let selectedPeer = null;
+let peers = [];
+
+function log(msg, cls='') {
+  const box = document.getElementById('logBox');
+  const d = document.createElement('div');
+  d.className = 'entry ' + cls;
+  d.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  box.appendChild(d);
+  box.scrollTop = box.scrollHeight;
+}
+
+async function fetchPeers() {
+  try {
+    const r = await fetch('/api/peers');
+    peers = await r.json();
+    renderPeers();
+  } catch(e) {}
+}
+
+function renderPeers() {
+  const ul = document.getElementById('peerList');
+  document.getElementById('peerCount').textContent = peers.length;
+  if (!peers.length) { ul.innerHTML = '<li class="empty">未发现设备，等待中...</li>'; return; }
+  ul.innerHTML = peers.map((p,i) => `
+    <li class="${selectedPeer===i?'selected':''}" onclick="selectPeer(${i})">
+      <span class="dot"></span>
+      <span class="name">${p.host}</span>
+      <span class="addr">${p.host}:${p.port}</span>
+    </li>
+  `).join('');
+}
+
+function selectPeer(i) { selectedPeer = i; renderPeers(); log(`已选择: ${peers[i].host}:${peers[i].port}`); }
+
+// Drag and drop
+const dz = document.getElementById('dropzone');
+const fi = document.getElementById('fileInput');
+dz.addEventListener('click', () => fi.click());
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('over'); uploadFiles(e.dataTransfer.files); });
+fi.addEventListener('change', () => { if(fi.files.length) uploadFiles(fi.files); });
+
+async function uploadFiles(files) {
+  if (selectedPeer === null && peers.length > 0) { selectedPeer = 0; renderPeers(); }
+  if (selectedPeer === null) { log('请先等待发现设备', 'err'); return; }
+  const p = peers[selectedPeer];
+  const prog = document.getElementById('uploadProgress');
+  const bar = document.getElementById('uploadBar');
+  prog.style.display = 'block';
+  bar.style.width = '0%';
+
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    log(`发送: ${f.name} (${formatSize(f.size)})`);
+    bar.style.width = `${((i) / files.length) * 100}%`;
+    const fd = new FormData();
+    fd.append('file', f);
+    fd.append('peer', `${p.host}:${p.port}`);
+    try {
+      const r = await fetch('/api/send', { method: 'POST', body: fd });
+      const j = await r.json();
+      if (j.ok) log(`✓ ${f.name} 发送成功`, 'ok');
+      else log(`✗ ${f.name}: ${j.error}`, 'err');
+    } catch(e) { log(`✗ ${f.name}: ${e}`, 'err'); }
+  }
+  bar.style.width = '100%';
+  setTimeout(() => { prog.style.display = 'none'; }, 1000);
+}
+
+async function doSync() {
+  const dir = document.getElementById('syncDir').value.trim();
+  if (!dir) { log('请输入同步目录', 'err'); return; }
+  const btn = document.getElementById('syncBtn');
+  btn.disabled = true; btn.textContent = '同步中...';
+  log(`开始同步: ${dir}`);
+
+  try {
+    const peer = selectedPeer !== null ? `${peers[selectedPeer].host}:${peers[selectedPeer].port}` : '';
+    const r = await fetch('/api/sync', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ dir, peer })
+    });
+    const j = await r.json();
+    if (j.ok) {
+      log(`✓ 同步完成: 发送 ${j.sent} / 接收 ${j.received}`, 'ok');
+      if (j.conflicts && j.conflicts.length > 0) showConflicts(j.conflicts, dir);
+    } else {
+      log(`✗ ${j.error}`, 'err');
+    }
+  } catch(e) { log(`✗ ${e}`, 'err'); }
+  btn.disabled = false; btn.textContent = '同步';
+}
+
+function showConflicts(conflicts, dir) {
+  const card = document.getElementById('conflictCard');
+  card.style.display = 'block';
+  document.getElementById('conflictCount').textContent = conflicts.length;
+  const list = document.getElementById('conflictList');
+  list.innerHTML = conflicts.map((c,i) => `
+    <div class="conflict" id="conflict-${i}">
+      <div class="path">📄 ${c.path}</div>
+      <div class="meta">
+        <span>🏠 本地: ${formatSize(c.local.size)} · ${formatTime(c.local.modified)}</span>
+        <span>🌐 对端: ${formatSize(c.remote.size)} · ${formatTime(c.remote.modified)}</span>
+      </div>
+      <div class="actions">
+        <button class="btn btn-sm btn-green" onclick="resolve('${c.path}','${dir}','local',${i})">保留本地</button>
+        <button class="btn btn-sm btn-red" onclick="resolve('${c.path}','${dir}','remote',${i})">保留对端</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function resolve(path, dir, choice, idx) {
+  const peer = selectedPeer !== null ? `${peers[selectedPeer].host}:${peers[selectedPeer].port}` : '';
+  try {
+    const r = await fetch('/api/resolve', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ dir, peer, path, choice })
+    });
+    const j = await r.json();
+    if (j.ok) {
+      log(`✓ ${path}: 保留${choice === 'local' ? '本地' : '对端'}版本`, 'ok');
+      document.getElementById(`conflict-${idx}`).remove();
+      const remaining = document.getElementById('conflictList').children.length;
+      document.getElementById('conflictCount').textContent = remaining;
+      if (remaining === 0) document.getElementById('conflictCard').style.display = 'none';
+    } else { log(`✗ ${j.error}`, 'err'); }
+  } catch(e) { log(`✗ ${e}`, 'err'); }
+}
+
+function formatSize(b) { return b < 1024 ? b+'B' : b < 1048576 ? (b/1024).toFixed(1)+'KB' : (b/1048576).toFixed(1)+'MB'; }
+function formatTime(ts) { return new Date(ts * 1000).toLocaleString(); }
+
+setInterval(fetchPeers, 3000);
+fetchPeers();
+</script>
+</body>
+</html>
