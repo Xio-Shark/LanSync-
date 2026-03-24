@@ -3,14 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Synchronize</title>
+<title>LanSync</title>
 <style>
-  :root { --bg: #0f0f13; --card: #1a1a24; --border: #2a2a3a; --accent: #6366f1; --accent2: #818cf8; --green: #22c55e; --red: #ef4444; --text: #e2e8f0; --text2: #94a3b8; --radius: 12px; }
+  :root { --bg: #0f0f13; --card: #1a1a24; --border: #2a2a3a; --accent: #6366f1; --accent2: #818cf8; --green: #22c55e; --red: #ef4444; --yellow: #eab308; --text: #e2e8f0; --text2: #94a3b8; --radius: 12px; }
   * { margin:0; padding:0; box-sizing:border-box; }
   body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
   .container { max-width:720px; margin:0 auto; padding:24px 16px; }
   h1 { font-size:24px; font-weight:700; margin-bottom:4px; background:linear-gradient(135deg,var(--accent),var(--accent2)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
   .subtitle { color:var(--text2); font-size:13px; margin-bottom:24px; }
+  .local-ip { background:var(--card); border:1px solid var(--accent); border-radius:8px; padding:10px 16px; margin-bottom:16px; display:flex; align-items:center; gap:10px; font-size:13px; }
+  .local-ip .label { color:var(--text2); }
+  .local-ip .ip { font-weight:700; color:var(--accent2); font-family:'SF Mono',monospace; font-size:15px; }
   .card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px; }
   .card h2 { font-size:15px; font-weight:600; margin-bottom:14px; display:flex; align-items:center; gap:8px; }
   .dropzone { border:2px dashed var(--border); border-radius:var(--radius); padding:48px 20px; text-align:center; cursor:pointer; transition:all .2s; }
@@ -25,6 +28,9 @@
   .peers .name { font-size:14px; font-weight:500; }
   .peers .addr { font-size:12px; color:var(--text2); margin-left:auto; }
   .empty { color:var(--text2); font-size:13px; text-align:center; padding:16px; }
+  .add-peer { display:flex; gap:8px; margin-top:12px; }
+  .add-peer input { flex:1; padding:8px 12px; background:#12121a; border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; outline:none; }
+  .add-peer input:focus { border-color:var(--accent); }
   .sync-row { display:flex; gap:10px; align-items:center; }
   .sync-row input { flex:1; padding:10px 14px; background:#12121a; border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:14px; outline:none; }
   .sync-row input:focus { border-color:var(--accent); }
@@ -37,6 +43,8 @@
   .btn-green:hover { opacity:.9; }
   .btn-red { background:var(--red); color:#fff; }
   .btn-red:hover { opacity:.9; }
+  .btn-outline { background:transparent; border:1px solid var(--accent); color:var(--accent); padding:8px 14px; }
+  .btn-outline:hover { background:rgba(99,102,241,.1); }
   .conflict { border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:10px; }
   .conflict .path { font-weight:600; font-size:14px; margin-bottom:8px; }
   .conflict .meta { display:grid; grid-template-columns:1fr 1fr; gap:6px; font-size:12px; color:var(--text2); margin-bottom:10px; }
@@ -46,28 +54,41 @@
   .log .entry { padding:2px 0; }
   .log .ok { color:var(--green); }
   .log .err { color:var(--red); }
+  .log .warn { color:var(--yellow); }
   .badge { display:inline-flex; align-items:center; justify-content:center; min-width:20px; height:20px; border-radius:10px; font-size:11px; font-weight:700; padding:0 6px; }
   .badge-accent { background:var(--accent); color:#fff; }
   #fileInput { display:none; }
   .progress { height:3px; background:var(--border); border-radius:2px; margin-top:10px; overflow:hidden; display:none; }
   .progress .bar { height:100%; background:var(--accent); width:0; transition:width .3s; }
+  .hint { color:var(--text2); font-size:11px; margin-top:6px; }
 </style>
 </head>
 <body>
 <div class="container">
-  <h1>⚡ Synchronize</h1>
-  <p class="subtitle" id="hostname">局域网文件传输与增量同步</p>
+  <h1>⚡ LanSync</h1>
+  <p class="subtitle">局域网文件传输与增量同步</p>
+
+  <div class="local-ip">
+    <span class="label">📍 本机地址：</span>
+    <span class="ip" id="localIp">获取中...</span>
+    <span class="label">（对端输入此 IP 可直接连接）</span>
+  </div>
 
   <div class="card">
-    <h2>📡 在线设备 <span class="badge badge-accent" id="peerCount">0</span></h2>
+    <h2>📡 设备 <span class="badge badge-accent" id="peerCount">0</span></h2>
     <ul class="peers" id="peerList"><li class="empty">搜索中...</li></ul>
+    <div class="add-peer">
+      <input type="text" id="manualPeer" placeholder="手动输入对端 IP，如 192.168.1.5">
+      <button class="btn btn-outline btn-sm" onclick="addManualPeer()">添加</button>
+    </div>
+    <div class="hint">💡 如果自动发现不到，在另一台设备上也运行 lansync gui，或手动输入对方 IP</div>
   </div>
 
   <div class="card">
     <h2>📁 拖拽传输</h2>
     <div class="dropzone" id="dropzone">
       <div class="icon">📂</div>
-      <p>拖拽文件或文件夹到此处</p>
+      <p>拖拽文件到此处发送到对端</p>
       <p style="margin-top:6px;font-size:12px">或点击选择文件</p>
     </div>
     <input type="file" id="fileInput" multiple>
@@ -106,10 +127,25 @@ function log(msg, cls='') {
   box.scrollTop = box.scrollHeight;
 }
 
+async function fetchLocalIp() {
+  try {
+    const r = await fetch('/api/info');
+    const j = await r.json();
+    document.getElementById('localIp').textContent = j.ip + ':' + j.recv_port;
+  } catch(e) {}
+}
+
 async function fetchPeers() {
   try {
     const r = await fetch('/api/peers');
-    peers = await r.json();
+    const newPeers = await r.json();
+    // 合并 mDNS 发现的设备，保留手动添加的
+    for (const np of newPeers) {
+      if (!peers.some(p => p.host === np.host && p.port === np.port)) {
+        peers.push(np);
+        log(`发现设备: ${np.host}:${np.port}`, 'ok');
+      }
+    }
     renderPeers();
   } catch(e) {}
 }
@@ -117,7 +153,7 @@ async function fetchPeers() {
 function renderPeers() {
   const ul = document.getElementById('peerList');
   document.getElementById('peerCount').textContent = peers.length;
-  if (!peers.length) { ul.innerHTML = '<li class="empty">未发现设备，等待中...</li>'; return; }
+  if (!peers.length) { ul.innerHTML = '<li class="empty">未发现设备，可手动输入 IP 添加</li>'; return; }
   ul.innerHTML = peers.map((p,i) => `
     <li class="${selectedPeer===i?'selected':''}" onclick="selectPeer(${i})">
       <span class="dot"></span>
@@ -128,6 +164,28 @@ function renderPeers() {
 }
 
 function selectPeer(i) { selectedPeer = i; renderPeers(); log(`已选择: ${peers[i].host}:${peers[i].port}`); }
+
+function addManualPeer() {
+  const input = document.getElementById('manualPeer');
+  let val = input.value.trim();
+  if (!val) return;
+  // 没填端口默认 9419
+  if (!val.includes(':')) val += ':9419';
+  const [host, port] = val.split(':');
+  if (peers.some(p => p.host === host && p.port === parseInt(port))) {
+    log('设备已存在', 'warn'); return;
+  }
+  peers.push({ host, port: parseInt(port) });
+  selectedPeer = peers.length - 1;
+  renderPeers();
+  input.value = '';
+  log(`手动添加: ${host}:${port}`, 'ok');
+}
+
+// Enter key to add peer
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('manualPeer').addEventListener('keydown', e => { if(e.key==='Enter') addManualPeer(); });
+});
 
 // Drag and drop
 const dz = document.getElementById('dropzone');
@@ -140,7 +198,7 @@ fi.addEventListener('change', () => { if(fi.files.length) uploadFiles(fi.files);
 
 async function uploadFiles(files) {
   if (selectedPeer === null && peers.length > 0) { selectedPeer = 0; renderPeers(); }
-  if (selectedPeer === null) { log('请先等待发现设备', 'err'); return; }
+  if (selectedPeer === null) { log('请先添加对端设备', 'err'); return; }
   const p = peers[selectedPeer];
   const prog = document.getElementById('uploadProgress');
   const bar = document.getElementById('uploadBar');
@@ -230,6 +288,7 @@ async function resolve(path, dir, choice, idx) {
 function formatSize(b) { return b < 1024 ? b+'B' : b < 1048576 ? (b/1024).toFixed(1)+'KB' : (b/1048576).toFixed(1)+'MB'; }
 function formatTime(ts) { return new Date(ts * 1000).toLocaleString(); }
 
+fetchLocalIp();
 setInterval(fetchPeers, 3000);
 fetchPeers();
 </script>

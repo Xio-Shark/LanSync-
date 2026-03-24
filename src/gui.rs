@@ -17,10 +17,11 @@ const INDEX_HTML: &str = include_str!("gui.html");
 
 struct AppState {
     peers: Vec<discovery::Peer>,
+    recv_port: u16,
 }
 
 pub async fn start_gui(port: u16) -> Result<()> {
-    let state = Arc::new(Mutex::new(AppState { peers: Vec::new() }));
+    let state = Arc::new(Mutex::new(AppState { peers: Vec::new(), recv_port: port + 1 }));
 
     // 接收端口：GUI 在此端口监听来自对端的文件传输
     let recv_port = port + 1;
@@ -56,6 +57,10 @@ pub async fn start_gui(port: u16) -> Result<()> {
 
     let app = Router::new()
         .route("/", get(index_page))
+        .route("/api/info", get({
+            let s = state.clone();
+            move || api_info(s)
+        }))
         .route("/api/peers", get({
             let s = state.clone();
             move || api_peers(s)
@@ -89,6 +94,32 @@ fn default_receive_dir() -> PathBuf {
 
 async fn index_page() -> Html<&'static str> {
     Html(INDEX_HTML)
+}
+
+#[derive(Serialize)]
+struct LocalInfo {
+    ip: String,
+    recv_port: u16,
+}
+
+// 获取本机局域网 IP：向公网 UDP 地址发一个不会真正发出的包，
+// 读取 socket 绑定的本地地址。不需要真正联网
+async fn api_info(state: Arc<Mutex<AppState>>) -> Json<LocalInfo> {
+    let s = state.lock().await;
+    Json(LocalInfo {
+        ip: get_local_ip(),
+        recv_port: s.recv_port,
+    })
+}
+
+fn get_local_ip() -> String {
+    std::net::UdpSocket::bind("0.0.0.0:0")
+        .and_then(|s| {
+            s.connect("8.8.8.8:80")?;
+            s.local_addr()
+        })
+        .map(|a| a.ip().to_string())
+        .unwrap_or_else(|_| "unknown".into())
 }
 
 #[derive(Serialize)]
